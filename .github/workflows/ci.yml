@@ -53,7 +53,7 @@ jobs:
           $f = Get-Item target\release\taskbar-battery.exe
           "taskbar-battery.exe: $([math]::Round($f.Length/1KB)) KB" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: taskbar-battery-windows-x64
           path: target/release/taskbar-battery.exe
