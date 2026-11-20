@@ -53,6 +53,9 @@ Step "Copiando para $InstallDir" {
         $src = @((Join-Path $here $f), (Join-Path $here "..\$f")) | Where-Object { Test-Path $_ } | Select-Object -First 1
         if ($src) { Copy-Item $src (Join-Path $InstallDir $f) -Force }
     }
+    # Arquivos baixados trazem a marca 'vindo da internet' (Zone.Identifier). Se ela ficasse no exe instalado,
+    # o Windows pediria confirmação ("Executar?") a cada login e o app não iniciaria sozinho.
+    Get-ChildItem $InstallDir -File | Unblock-File
 }
 Step 'Criando atalho no Menu Iniciar' {
     $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)

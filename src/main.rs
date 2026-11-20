@@ -714,6 +714,7 @@ fn main() {
             app.cfg = config::load();
         });
         vendor::init(hwnd, WM_VENDOR);
+        startup::repair();
         diag::log("início");
         SetTimer(hwnd, TIMER_POLL, POLL_MS, None);
         refresh(true);

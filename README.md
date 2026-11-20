@@ -49,6 +49,8 @@ Instala em `%LOCALAPPDATA%\Programs\taskbar-battery\` (sem administrador), cria 
 
 **Opção 2: manual.** Baixe o `taskbar-battery-vX.Y.Z-windows-x64.exe`, coloque numa pasta fixa (não rode da pasta Downloads) e execute. *Iniciar com o Windows* usa o caminho de onde o exe estiver.
 
+> **Para iniciar sozinho no login sem pedir confirmação, instale com o script** (opção 1). Um `.exe` baixado traz a marca "vindo da internet" e o Windows pergunta "Executar?" a cada login se ele for iniciado de Downloads. O script instala numa pasta fixa e remove essa marca. Se preferir o `.exe` avulso, clique com o botão direito › Propriedades › marque **Desbloquear**, ou rode `Unblock-File .\taskbar-battery-*.exe`, e mova para uma pasta fixa.
+
 > **SmartScreen:** o executável não é assinado digitalmente, então o Windows pode avisar na primeira execução (*Mais informações › Executar assim mesmo*). Confira o hash em `SHA256SUMS.txt`, ou [compile você mesmo](#compilar).
 
 **Requisitos:** Windows 11 (outras versões não testadas). ADB só é necessário para o celular.
