@@ -2,6 +2,12 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
+## [0.2.0] - 2026-11-19
+
+### Adicionado
+- **Um ícone por dispositivo, em qualquer conexão.** Dispositivos da tabela `src/known.rs` (hoje o teclado GMK67, VID/PID 05AC:024F) aparecem como um único ícone, quer estejam por cabo, receptor 2,4 GHz ou Bluetooth. O tooltip mostra as conexões ativas, por exemplo `[2,4 GHz, cabo]`.
+- **Último valor de bateria.** Quando o dispositivo está num modo que não informa bateria, o ícone mostra, esmaecido, o último valor conhecido (o do Bluetooth, guardado em `last-known.ini` ou, se não houver, o que o Windows guardou para o dispositivo pareado), com a idade no tooltip ("há 1 h", "há 3 dias"). Valores antigos não disparam o alerta de bateria baixa.
+
 ## [0.1.0] - 2026-11-19
 
 Primeira versão.
@@ -25,4 +31,5 @@ Primeira versão.
 - Receptores 2.4 GHz proprietários (por exemplo o do teclado GMK67) não informam bateria; ela só aparece pelo Bluetooth.
 - Executável sem ícone, versão embutida e assinatura digital.
 
+[0.2.0]: https://github.com/LucasFelip/taskbar-battery/releases/tag/v0.2.0
 [0.1.0]: https://github.com/LucasFelip/taskbar-battery/releases/tag/v0.1.0
