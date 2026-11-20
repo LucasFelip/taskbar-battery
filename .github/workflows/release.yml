@@ -1,0 +1,96 @@
+name: release
+
+# Publica uma release quando uma tag vX.Y.Z é enviada:
+#   git tag v0.2.0 && git push origin v0.2.0
+# A tag precisa bater com a versão do Cargo.toml.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag existente a (re)publicar, ex.: v0.2.0"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Resolver tag e versão
+        id: meta
+        shell: pwsh
+        run: |
+          $tag = if ($env:INPUT_TAG) { $env:INPUT_TAG } else { $env:GITHUB_REF_NAME }
+          $ver = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          if ("v$ver" -ne $tag) { throw "A tag $tag não bate com a versão do Cargo.toml (v$ver)." }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$ver" >> $env:GITHUB_OUTPUT
+          "prerelease=$($ver.Contains('-').ToString().ToLower())" >> $env:GITHUB_OUTPUT
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Verificações
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets --locked -- -D warnings
+          cargo test --locked
+
+      - name: Compilar (release)
+        run: cargo build --release --locked
+
+      - name: Empacotar
+        id: pack
+        shell: pwsh
+        run: |
+          $v = "${{ steps.meta.outputs.version }}"
+          $name = "taskbar-battery-v$v-windows-x64"
+          New-Item -ItemType Directory -Force dist\$name | Out-Null
+          Copy-Item target\release\taskbar-battery.exe dist\$name\
+          Copy-Item README.md, LICENSE, CHANGELOG.md dist\$name\
+          Copy-Item scripts\install.ps1, scripts\uninstall.ps1 dist\$name\
+          Compress-Archive -Path "dist\$name\*" -DestinationPath "dist\$name.zip"
+          Copy-Item target\release\taskbar-battery.exe "dist\$name.exe"
+          Push-Location dist
+          Get-FileHash "$name.zip", "$name.exe" -Algorithm SHA256 |
+            ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), (Split-Path $_.Path -Leaf) } |
+            Set-Content SHA256SUMS.txt -Encoding ascii
+          Pop-Location
+          Get-Content dist\SHA256SUMS.txt
+
+      - name: Notas da release (do CHANGELOG)
+        shell: pwsh
+        run: |
+          $v = "${{ steps.meta.outputs.version }}"
+          $t = Get-Content CHANGELOG.md -Raw
+          $m = [regex]::Match($t, "(?ms)^## \[$([regex]::Escape($v))\][^\r\n]*\r?\n(.*?)(?=^## \[|\z)")
+          $body = if ($m.Success) { $m.Groups[1].Value.Trim() } else { "Release v$v" }
+          $body += "`n`n**Verificação:** confira o hash com ``SHA256SUMS.txt`` antes de executar. O executável não é assinado digitalmente, então o SmartScreen pode avisar na primeira execução (Mais informações › Executar assim mesmo)."
+          Set-Content release-notes.md $body -Encoding utf8
+
+      - name: Publicar release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: Taskbar Battery v${{ steps.meta.outputs.version }}
+          body_path: release-notes.md
+          prerelease: ${{ steps.meta.outputs.prerelease }}
+          files: |
+            dist/taskbar-battery-v${{ steps.meta.outputs.version }}-windows-x64.zip
+            dist/taskbar-battery-v${{ steps.meta.outputs.version }}-windows-x64.exe
+            dist/SHA256SUMS.txt
