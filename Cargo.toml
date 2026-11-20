@@ -1,6 +1,6 @@
 [package]
 name = "taskbar-battery"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Bateria dos periféricos (mouse, teclado, fone, celular) na bandeja do Windows 11, com consumo mínimo"
 license = "MIT"

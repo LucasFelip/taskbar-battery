@@ -2,6 +2,11 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
+## [0.2.1] - 2026-11-20
+
+### Corrigido
+- **O app iniciava com o Windows só depois de uma confirmação ("Executar?").** Um `.exe` baixado (por exemplo em Downloads) traz a marca "vindo da internet" e o Windows pede confirmação a cada login quando ele está na chave de inicialização. Agora: (1) `install.ps1` remove essa marca da cópia instalada (`Unblock-File`); (2) *Iniciar com o Windows* passa a apontar sempre para a cópia instalada (`%LOCALAPPDATA%\Programs\taskbar-battery`) quando ela existe, mesmo que o app tenha sido aberto de outro lugar; (3) ao abrir, o app corrige uma chave de inicialização que aponte para outro caminho, sem religar o que você desligou.
+
 ## [0.2.0] - 2026-11-19
 
 ### Adicionado
@@ -31,5 +36,6 @@ Primeira versão.
 - Receptores 2.4 GHz proprietários (por exemplo o do teclado GMK67) não informam bateria; ela só aparece pelo Bluetooth.
 - Executável sem ícone, versão embutida e assinatura digital.
 
+[0.2.1]: https://github.com/LucasFelip/taskbar-battery/releases/tag/v0.2.1
 [0.2.0]: https://github.com/LucasFelip/taskbar-battery/releases/tag/v0.2.0
 [0.1.0]: https://github.com/LucasFelip/taskbar-battery/releases/tag/v0.1.0
