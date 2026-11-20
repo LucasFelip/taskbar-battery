@@ -96,13 +96,12 @@ fn parse(s: &str) -> Option<Device> {
         }
     }
     let name = model.map(|m| format!("Celular {m}")).unwrap_or_else(|| "Celular Android".into());
-    level.map(|p| Device { id: crate::fnv(ID_PHONE), name, pct: Some(p.min(100)), charging: powered, kind: Kind::Phone, stale: false })
+    level.map(|p| Device { id: crate::fnv(ID_PHONE), name, pct: Some(p.min(100)), charging: powered, kind: Kind::Phone, ..Default::default() })
 }
 
 /// Lê o celular agora (bloqueante, até ~25 s). Assume que há uma interface ADB presente.
 fn read_device() -> Device {
-    let unknown =
-        |why: &str| Device { id: crate::fnv(ID_PHONE), name: format!("Celular Android ({why})"), pct: None, charging: false, kind: Kind::Phone, stale: false };
+    let unknown = |why: &str| Device { id: crate::fnv(ID_PHONE), name: format!("Celular Android ({why})"), pct: None, kind: Kind::Phone, ..Default::default() };
     match find_adb() {
         None => {
             crate::diag::log("phone: adb.exe não encontrado (PATH, Android SDK, Iriun)");

@@ -29,6 +29,7 @@ Mostra a bateria dos seus periféricos (mouse, teclado, fone, controle, celular 
 | **Celular Android por USB** | `adb shell dumpsys battery`, com depuração USB ativa. O servidor ADB é iniciado só durante a leitura e encerrado depois | testado: Samsung SM-A315G |
 | **Mouse BK-R3X** (receptor 2.4 GHz, 249A:5C2F) | Relatório proprietário que o mouse envia quando a bateria muda ou ao ligar/desligar. Só escuta; o último valor fica salvo em disco | testado |
 | **USB HID com bateria padrão** (Battery Strength, 0x06/0x20) | Lido do descritor HID | implementado, sem hardware para testar |
+| **Teclado GMK67 (cabo, 2,4 GHz e Bluetooth)** | Um único ícone para as três conexões (tabela `src/known.rs`). A bateria só vem do Bluetooth; nos outros modos aparece esmaecido o último valor conhecido, com a idade no tooltip | testado |
 | **Outros receptores 2.4 GHz** (por exemplo o do teclado GMK67) | Não informam bateria; aparecem com `?`. Use *Sondar dispositivos USB* para investigar | sem suporte |
 | **Bluetooth LE via GATT (0x180F)** | Só pela propriedade do Windows, se ela existir | não validado |
 
@@ -77,7 +78,7 @@ Os ícones novos podem aparecer primeiro no overflow ("^"). O app grava a prefer
 | Nível de bateria/número/barra | Valor atual |
 | Vermelho | Abaixo de 20% |
 | `?` | Dispositivo detectado, mas sem bateria legível |
-| Esmaecido | Último valor conhecido (a leitura atual falhou; expira após ~30 min). No mouse BK-R3X, valor com mais de 12 h |
+| Esmaecido | Último valor conhecido: a leitura atual falhou (expira após ~30 min), o mouse BK-R3X passou de 12 h sem relatório, ou um dispositivo conhecido (teclado GMK67) está num modo sem bateria (mostra o último valor do Bluetooth, com a idade no tooltip) |
 
 Passe o mouse sobre o ícone para ver o nome e o status completos.
 

@@ -51,10 +51,38 @@ fn kind_from(cod: Option<u32>, name: &str) -> Kind {
         Kind::Other
     }
 }
+/// hora (FILETIME) em que o Windows leu a bateria
+const KEY_STAMP: DEVPROPKEY = DEVPROPKEY { fmtid: GUID_BT, pid: 7 };
 const KEY_CONNECTED: DEVPROPKEY = DEVPROPKEY {
     fmtid: windows_sys::core::GUID { data1: 0x83DA6326, data2: 0x97A6, data3: 0x4088, data4: [0x94, 0x53, 0xA1, 0x92, 0x3F, 0x57, 0x3B, 0x29] },
     pid: 15,
 };
+
+/// VID/PID USB do dispositivo Bluetooth, lido dos nós filhos (ex.: BTHLEDEVICE\...\_DEV_VID&0205AC_PID&024F_...).
+fn usb_ids(dn: u32) -> Option<(u16, u16)> {
+    let mut c = 0u32;
+    if unsafe { CM_Get_Child(&mut c, dn, 0) } != CR_SUCCESS {
+        return None;
+    }
+    loop {
+        let mut buf = [0u16; 260];
+        if unsafe { CM_Get_Device_IDW(c, buf.as_mut_ptr(), 260, 0) } == CR_SUCCESS {
+            let n = buf.iter().position(|&x| x == 0).unwrap_or(0);
+            let s = String::from_utf16_lossy(&buf[..n]).to_ascii_uppercase();
+            if let (Some(i), Some(j)) = (s.find("VID&02"), s.find("PID&"))
+                && let (Some(v), Some(p)) = (s.get(i + 6..i + 10), s.get(j + 4..j + 8))
+                && let (Ok(v), Ok(p)) = (u16::from_str_radix(v, 16), u16::from_str_radix(p, 16))
+            {
+                return Some((v, p));
+            }
+        }
+        let mut sib = 0u32;
+        if unsafe { CM_Get_Sibling(&mut sib, c, 0) } != CR_SUCCESS {
+            return None;
+        }
+        c = sib;
+    }
+}
 
 unsafe fn prop(dev: u32, key: &DEVPROPKEY, buf: &mut [u8]) -> Option<usize> {
     let mut ty: u32 = 0;
@@ -92,18 +120,20 @@ pub fn read(out: &mut Vec<Device>) {
             if unsafe { CM_Locate_DevNodeW(&mut dn, z.as_ptr(), CM_LOCATE_DEVNODE_NORMAL) } != CR_SUCCESS {
                 continue;
             }
-            // precisa estar conectado (pareado e desligado não aparece)
+            // dispositivo conhecido: mesmo id e nome em todas as conexões (cabo, 2,4 GHz, Bluetooth)
+            let known = usb_ids(dn).and_then(|(v, p)| crate::known::find(v, p));
+            // pareado e desligado só aparece se for conhecido (mostra o último valor que o Windows guardou)
             let mut c = [0u8; 4];
-            match unsafe { prop(dn, &KEY_CONNECTED, &mut c) } {
-                Some(_) if c[0] != 0 => {}
-                _ => continue,
+            let connected = unsafe { prop(dn, &KEY_CONNECTED, &mut c) }.is_some() && c[0] != 0;
+            if !connected && known.is_none() {
+                continue;
             }
             let mut b = [0u8; 4];
             let mut pct = match unsafe { prop(dn, &KEY_BATTERY, &mut b) } {
                 Some(n) if n >= 1 => Some(b[0].min(100)),
                 _ => None,
             };
-            if pct.is_none() {
+            if pct.is_none() && connected {
                 // fones/áudio: a bateria costuma estar no nó de serviço (ex.: Hands-Free) deste endereço
                 pct = child_battery(&ids, &addr.to_ascii_uppercase()[4..]);
             }
@@ -121,7 +151,37 @@ pub fn read(out: &mut Vec<Device>) {
                 _ => None,
             };
             let kind = kind_from(cod, &name);
-            out.push(Device { id: key, name, pct, charging: false, kind, stale: false });
+            if !connected && pct.is_none() {
+                continue;
+            }
+            let (id, name, kind) = match known {
+                Some(k) => (crate::known::id(k), k.name.to_string(), k.kind),
+                None => (key, name, kind),
+            };
+            if out.iter().any(|d| d.id == id && d.detail.contains("Bluetooth")) {
+                continue;
+            }
+            // desconectado: valor guardado pelo Windows, com a hora em que foi lido
+            let as_of = if connected {
+                None
+            } else {
+                let mut t = [0u8; 8];
+                match unsafe { prop(dn, &KEY_STAMP, &mut t) } {
+                    Some(8) => (u64::from_le_bytes(t) / 10_000_000).checked_sub(11_644_473_600),
+                    _ => None,
+                }
+            };
+            out.push(Device {
+                id,
+                name,
+                pct,
+                kind,
+                known: known.is_some(),
+                detail: if known.is_some() && connected { "Bluetooth".into() } else { String::new() },
+                stale: !connected,
+                as_of,
+                ..Default::default()
+            });
         }
     }
 }
@@ -129,7 +189,6 @@ pub fn read(out: &mut Vec<Device>) {
 /// Procura a bateria nos nós de serviço `BTHENUM\{uuid}_...\...<endereço>_...` do mesmo aparelho.
 /// Se houver vários, usa o de timestamp (pid 7) mais recente.
 fn child_battery(ids: &[u16], addr: &str) -> Option<u8> {
-    const KEY_STAMP: DEVPROPKEY = DEVPROPKEY { fmtid: GUID_BT, pid: 7 };
     let mut best: Option<(u64, u8)> = None;
     for id in ids.split(|&c| c == 0).filter(|s| !s.is_empty()) {
         let s = String::from_utf16_lossy(id).to_ascii_uppercase();

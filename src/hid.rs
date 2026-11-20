@@ -69,6 +69,23 @@ unsafe fn battery(h: HANDLE, pp: isize, caps: &HIDP_CAPS) -> Option<u8> {
     None
 }
 
+/// Nome de produto USB do dispositivo HID (vazio se indisponível).
+unsafe fn product(h: HANDLE) -> String {
+    let mut name = [0u16; 128];
+    unsafe { HidD_GetProductString(h, name.as_mut_ptr() as *mut _, (name.len() * 2) as u32) };
+    let n = name.iter().position(|&c| c == 0).unwrap_or(0);
+    String::from_utf16_lossy(&name[..n])
+}
+
+fn add_detail(d: &mut Device, part: &str) {
+    if !d.detail.split(", ").any(|x| x == part) {
+        if !d.detail.is_empty() {
+            d.detail.push_str(", ");
+        }
+        d.detail.push_str(part);
+    }
+}
+
 pub fn read(out: &mut Vec<Device>) {
     unsafe {
         let mut guid = std::mem::zeroed();
@@ -109,6 +126,12 @@ pub fn read(out: &mut Vec<Device>) {
             let mut attr: HIDD_ATTRIBUTES = std::mem::zeroed();
             attr.Size = size_of::<HIDD_ATTRIBUTES>() as u32;
             HidD_GetAttributes(h, &mut attr);
+            // dispositivo conhecido: mesmo id em todas as conexões (cabo, 2,4 GHz, Bluetooth) => um ícone só
+            let known = crate::known::find(attr.VendorID, attr.ProductID);
+            let key = match known {
+                Some(k) => crate::known::id(k),
+                None => key,
+            };
             let is_bkr3x = attr.VendorID == crate::vendor::VID && attr.ProductID == crate::vendor::PID;
             if is_bkr3x {
                 vendor_key = Some(key);
@@ -141,20 +164,28 @@ pub fn read(out: &mut Vec<Device>) {
                                     out[p].pct = bat;
                                 }
                                 out[p].kind = match (out[p].kind, k) {
+                                    _ if known.is_some() => out[p].kind,
                                     (Kind::Mouse, Kind::Keyboard) | (Kind::Keyboard, Kind::Mouse) => Kind::Combo,
                                     (Kind::Other, x) => x,
                                     (x, _) => x,
                                 };
+                                if let Some(kn) = known {
+                                    add_detail(&mut out[p], crate::known::usb_mode(kn, &product(h)));
+                                }
                             }
                             None => {
-                                let mut name = [0u16; 128];
-                                HidD_GetProductString(h, name.as_mut_ptr() as *mut _, (name.len() * 2) as u32);
-                                let n = name.iter().position(|&c| c == 0).unwrap_or(0);
-                                let mut nm = String::from_utf16_lossy(&name[..n]);
+                                let mut nm = product(h);
                                 if nm.is_empty() {
                                     nm = "Dispositivo USB".into();
                                 }
-                                out.push(Device { id: key, name: nm, pct: bat, charging: false, kind: k, stale: false });
+                                let mut d = Device { id: key, name: nm, pct: bat, kind: k, ..Default::default() };
+                                if let Some(kn) = known {
+                                    d.name = kn.name.into();
+                                    d.kind = kn.kind;
+                                    d.known = true;
+                                    add_detail(&mut d, crate::known::usb_mode(kn, &product(h)));
+                                }
+                                out.push(d);
                             }
                         }
                     }

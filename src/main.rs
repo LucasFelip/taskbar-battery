@@ -6,6 +6,8 @@ mod config;
 mod diag;
 mod hid;
 mod icon;
+mod known;
+mod last;
 mod phone;
 mod pin;
 mod probe;
@@ -51,7 +53,7 @@ const ALERT_AT: u8 = 15;
 const MAX_STALE_CYCLES: u8 = 3;
 const ALERT_REARM: u8 = 20;
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
 pub enum Kind {
     Headset,
     Mouse,
@@ -59,6 +61,7 @@ pub enum Kind {
     Combo,
     Gamepad,
     Phone,
+    #[default]
     Other,
 }
 
@@ -76,7 +79,7 @@ impl Kind {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Device {
     pub id: u32,
     pub name: String,
@@ -85,6 +88,12 @@ pub struct Device {
     pub kind: Kind,
     /// valor antigo reaproveitado porque a leitura atual falhou
     pub stale: bool,
+    /// conexões ativas do dispositivo conhecido ("cabo", "2,4 GHz", "Bluetooth"), separadas por vírgula
+    pub detail: String,
+    /// dispositivo da tabela `known` (um ícone para todas as conexões; guarda o último valor)
+    pub known: bool,
+    /// quando o valor mostrado foi lido (unix), se for um valor guardado
+    pub as_of: Option<u64>,
 }
 
 pub fn fnv(b: &[u8]) -> u32 {
@@ -128,14 +137,63 @@ fn wide(s: &str) -> Vec<u16> {
 fn pct_text(d: &Device) -> String {
     match (d.pct, d.charging, d.stale) {
         (Some(p), true, _) => format!("{p}% (carregando)"),
-        (Some(p), false, true) => format!("{p}% (último valor)"),
+        (Some(p), false, true) => match d.as_of {
+            Some(t) => format!("{p}% (último valor, {})", last::age_text(last::now().saturating_sub(t))),
+            None => format!("{p}% (último valor)"),
+        },
         (Some(p), false, false) => format!("{p}%"),
         (None, _, _) => "bateria indisponível".into(),
     }
 }
 
 fn tip(d: &Device) -> String {
-    format!("{} — {}", d.name, pct_text(d))
+    if d.detail.is_empty() { format!("{} — {}", d.name, pct_text(d)) } else { format!("{} — {} [{}]", d.name, pct_text(d), d.detail) }
+}
+
+/// Junta registros do mesmo dispositivo (mesmo id) vindos de fontes diferentes: fica o valor de bateria
+/// que existir e a lista de conexões ativas.
+fn merge(v: Vec<Device>) -> Vec<Device> {
+    let mut out: Vec<Device> = Vec::new();
+    for d in v {
+        if let Some(e) = out.iter_mut().find(|e| e.id == d.id) {
+            if e.pct.is_none() {
+                e.pct = d.pct;
+                e.charging = d.charging;
+                e.stale = d.stale;
+            }
+            e.known |= d.known;
+            for part in d.detail.split(", ").filter(|p| !p.is_empty()) {
+                if !e.detail.split(", ").any(|x| x == part) {
+                    if !e.detail.is_empty() {
+                        e.detail.push_str(", ");
+                    }
+                    e.detail.push_str(part);
+                }
+            }
+        } else {
+            out.push(d);
+        }
+    }
+    out
+}
+
+/// Dispositivos conhecidos: guarda o valor ao vivo e, sem leitura (cabo/2,4 GHz), usa o último guardado.
+fn persist(v: &mut [Device]) {
+    for d in v.iter_mut().filter(|d| d.known) {
+        match d.pct {
+            Some(p) if !d.stale => {
+                last::save(d.id, p);
+                d.as_of = None;
+            }
+            _ => {
+                if let Some((p, t)) = last::load(d.id) {
+                    d.pct = Some(p);
+                    d.stale = true;
+                    d.as_of = Some(t);
+                }
+            }
+        }
+    }
 }
 
 fn nid(hwnd: HWND, id: u32) -> NOTIFYICONDATAW {
@@ -155,7 +213,7 @@ fn copy_w(dst: &mut [u16], s: &str) {
 fn read_all(fake: Option<u8>) -> Vec<Device> {
     let mut v = Vec::new();
     if let Some(p) = fake {
-        let mk = |n: &str, pct: Option<u8>, k: Kind| Device { id: fnv(n.as_bytes()), name: n.into(), pct, charging: false, kind: k, stale: false };
+        let mk = |n: &str, pct: Option<u8>, k: Kind| Device { id: fnv(n.as_bytes()), name: n.into(), pct, kind: k, ..Default::default() };
         v.push(mk("Teste headset", Some(p), Kind::Headset));
         v.push(mk("Teste mouse", Some(80), Kind::Mouse));
         v.push(mk("Teste sem bateria", None, Kind::Combo));
@@ -166,6 +224,8 @@ fn read_all(fake: Option<u8>) -> Vec<Device> {
             v.push(p);
         }
     }
+    let mut v = merge(v);
+    persist(&mut v);
     v.sort_by(|a, b| (a.kind, &a.name).cmp(&(b.kind, &b.name)));
     v
 }
@@ -249,7 +309,7 @@ fn refresh(kick: bool) {
             n.uCallbackMessage = WM_TRAY;
             copy_w(&mut n.szTip, &tip(&d));
             let id = d.id;
-            let (pct, charging) = (d.pct, d.charging);
+            let (pct, charging, stale) = (d.pct, d.charging, d.stale);
             if let Some(e) = app.entries.iter_mut().find(|e| e.dev.id == d.id) {
                 if e.spec != spec {
                     let old = e.icon;
@@ -281,7 +341,7 @@ fn refresh(kick: bool) {
             if let Some(p) = pct {
                 if p > ALERT_REARM || charging {
                     app.alerted.retain(|x| *x != id);
-                } else if alerts && p <= ALERT_AT && !app.alerted.contains(&id) {
+                } else if alerts && !stale && p <= ALERT_AT && !app.alerted.contains(&id) {
                     app.alerted.push(id);
                     if let Some(e) = app.entries.iter().find(|e| e.dev.id == id) {
                         balloon(hwnd, &e.dev);
@@ -588,7 +648,14 @@ fn once(fake: Option<u8>) {
     }
     let mut s = String::new();
     for d in &v {
-        let _ = writeln!(s, "{:<10} {:<38} {}", d.kind.label(), d.name, pct_text(d));
+        let _ = writeln!(
+            s,
+            "{:<10} {:<38} {}{}",
+            d.kind.label(),
+            d.name,
+            pct_text(d),
+            if d.detail.is_empty() { String::new() } else { format!(" [{}]", d.detail) }
+        );
     }
     if v.is_empty() {
         s.push_str("nenhum dispositivo detectado\n");
